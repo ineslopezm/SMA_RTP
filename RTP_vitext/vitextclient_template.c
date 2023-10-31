@@ -201,20 +201,118 @@ int main(int argc, char *argv[])
 
     // declaramos nuestro conjunto de señales y lo asociamos a nuestro
     // descriptor  
-    fd_set conjunto_senales;
-    FD_ZERO(&conjunto_senales);
-    FD_SET(signal_fd, &conjunto_senales);
+
+    // Definición de fases
+    enum Phase {
+        PREPARACION,
+        LLAMADA_SELECT,
+        ANALISIS_RESULTADO
+    };
+    enum Phase phase = PREPARACION; //fase inicial
+
+    //Definicion de estados 
+    enum State {
+        WAIT_FIRST,
+        PLAY_AND_BUFF
+    };
+    enum State state = WAIT_FIRST; //estado inicial
 
 
+    int temporizador = 0; // Valor inicial del temporizador
+    time_t timestamp_first_packet;
+    
+    
+    while (1) {
+        switch (phase) {
+            case PREPARACION:
+                fd_set read_fds;
+                FD_ZERO(&read_fds);
+                FD_SET(socket_RTP, &read_fds);
+                FD_SET(signal_fd, &read_fds);
 
-    // Create loop that receives packets and inserts them in the buffer, read from the buffer and plays them
+                // Configurar temporizador según lo descrito
+                // temporizador = ...
 
-    while (true)
-    {
-        int res = select(signal_fd, &conjunto_senales, NULL, NULL, NULL);
+                phase = LLAMADA_SELECT;
+                break;
+
+            case LLAMADA_SELECT:
+                int res = select(FD_SETSIZE, &read_fds, NULL, NULL, NULL); //El ultimo NULL sera el temporizador
+
+                //caso res == 0 es temporizador expirado (hacer)
+                if (res == 0){
+                    exit(0); 
+                }
+
+                else if (res > 0) {
+                    if (FD_ISSET(socket_RTP, &read_fds)) {
+                        // Hay paquetes en el socket RTP, leer y almacenar
+                        // en packet_buffer
+                        switch (state) {
+                            case WAIT_FIRST:
+                                //pasar a estado PLAY_AND_BUFF
+                                state = PLAY_AND_BUFF;
+                                //guardar timestamp del primer paquete para temporizador
+                                
+                                *timestamp_first_packet = time(NULL);
+                                break;
+                            case PLAY_AND_BUFF:
+                                //seguir leyendo paquetes
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+
+                    if (FD_ISSET(signal_fd, &read_fds)) {
+                        // Se recibió una señal, procesarla
+                        struct signalfd_siginfo siginfo;
+                        ssize_t sigread = read(signal_fd, &siginfo, sizeof(siginfo));
+                        
+                        if (sigread != sizeof(siginfo)) {
+                            fprintf(stderr, "Error al leer la señal\n");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if (siginfo.ssi_signo == SIGINT) {
+                            // El usuario ha pulsado Ctrl-C, terminar ejecución
+                            // con salida ordenada
+                            exit(0);                            
+                        }
+                        
+                        if (siginfo.ssi_signo == SIGALRM) {
+                            // El temporizador ha expirado, realizar acciones
+                            // según la lógica descrita
+                        }
+
+                        if (siginfo.ssi_signo == SIGTERM) {
+
+                        }
+                        
+                    }
+                }
+
+                else if (res < 0) { //Error case
+                    perror("res");
+                    exit(EXIT_FAILURE);
+                }
+
+                phase = ANALISIS_RESULTADO;
+                break;
+
+            case ANALISIS_RESULTADO:
+                if (temporizador_expirado) {
+                    if (modo_reproduccion && !hay_paquetes) {
+                        temporizador = 5;
+                    } else {
+                        temporizador = /* ... */;
+                    }
+                }
+
+                phase = PREPARACION;
+                break;
+        }
     }
-}
 
-int select(int n, fd_set *conjunto_senales, struct timeval *timeout) {
-    return
+    return 0;
 }
